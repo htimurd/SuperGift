@@ -23,6 +23,13 @@ def play_menu_kb():
     return kb.as_markup()
 
 
+def spin_skip_kb():
+    kb = InlineKeyboardBuilder()
+    kb.button(text="⏭ Пропустить", callback_data="spin:skip")
+    kb.adjust(1)
+    return kb.as_markup()
+
+
 def claim_kb():
     kb = InlineKeyboardBuilder()
     kb.button(text="✅ Забрать", callback_data="play:claim")
