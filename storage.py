@@ -11,6 +11,7 @@ _lock = threading.Lock()
 def _default_data():
     return {
         "prizes": [
+            {"id": 0, "name": "Ничего", "amount": 0, "chance": 99, "is_empty": True},
             {"id": 1, "name": "Мини-приз", "amount": 5, "chance": 40},
             {"id": 2, "name": "Малый приз", "amount": 25, "chance": 30},
             {"id": 3, "name": "Средний приз", "amount": 100, "chance": 20},
@@ -30,12 +31,21 @@ def load_data():
     with _lock:
         with open(DATA_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
-    # миграция старых записей без поля "name"
+
     changed = False
+    # миграция старых записей без поля "name"
     for p in data.get("prizes", []):
         if "name" not in p:
             p["name"] = f"Приз ⭐{p['amount']}"
             changed = True
+
+    # если в старых данных ещё нет "пустого" исхода — добавляем его
+    if not any(p.get("is_empty") for p in data.get("prizes", [])):
+        data["prizes"].insert(
+            0, {"id": 0, "name": "Ничего", "amount": 0, "chance": 99, "is_empty": True}
+        )
+        changed = True
+
     if changed:
         save_data(data)
     return data
