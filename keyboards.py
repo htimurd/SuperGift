@@ -43,8 +43,9 @@ def withdraw_select_kb(user_id, selected):
         name = w.get("name", "Приз")
         kb.button(text=f"{mark} {name} — ⭐ {w['amount']}", callback_data=f"withdraw:toggle:{w['id']}")
     kb.adjust(1)
+    kb.row(InlineKeyboardButton(text="💰 Вывести всё", callback_data="withdraw:all"))
     kb.row(
-        InlineKeyboardButton(text="📤 Вывести", callback_data="withdraw:go"),
+        InlineKeyboardButton(text="📤 Вывести выбранное", callback_data="withdraw:go"),
         InlineKeyboardButton(text="⬅️ Назад", callback_data="menu:back"),
     )
     return kb.as_markup()
