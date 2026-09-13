@@ -18,6 +18,7 @@ router = Router()
 # но это только промежуточное состояние текущей сессии игрока (это нормально).
 pending_wins: dict[int, dict] = {}
 withdraw_selection: dict[int, set[int]] = {}
+skip_events: dict[int, asyncio.Event] = {}
 
 SPIN_SYMBOLS = ["🍒", "🍋", "🍇", "⭐", "🎁", "💎", "7️⃣"]
 
@@ -71,12 +72,15 @@ def _render_row(row):
     return "   ".join(row)
 
 
-async def animate_slot(message, final_symbols):
+async def animate_slot(message, final_symbols, skip_event: asyncio.Event):
     lock_schedule = {5: 0, 8: 1, 11: 2}
     total_frames = 12
     locked = [False, False, False]
 
     for frame in range(total_frames):
+        if skip_event.is_set():
+            break
+
         if frame in lock_schedule:
             locked[lock_schedule[frame]] = True
 
@@ -99,8 +103,14 @@ async def animate_slot(message, final_symbols):
             header = "🎰 Барабан остановился!"
             delay = 0.6
 
-        await _safe_edit(message, f"{header}\n\n{_render_row(row)}")
-        await asyncio.sleep(delay)
+        await _safe_edit(message, f"{header}\n\n{_render_row(row)}", reply_markup=kb.spin_skip_kb())
+
+        try:
+            await asyncio.wait_for(skip_event.wait(), timeout=delay)
+        except asyncio.TimeoutError:
+            continue
+        else:
+            break
 
 
 @router.callback_query(F.data == "play:spin")
@@ -122,7 +132,12 @@ async def spin(call: CallbackQuery):
         symbol = random.choice(SPIN_SYMBOLS)
         final_symbols = [symbol, symbol, symbol]
 
-    await animate_slot(call.message, final_symbols)
+    skip_event = asyncio.Event()
+    skip_events[call.from_user.id] = skip_event
+    try:
+        await animate_slot(call.message, final_symbols, skip_event)
+    finally:
+        skip_events.pop(call.from_user.id, None)
 
     if is_empty:
         await _safe_edit(
@@ -138,6 +153,14 @@ async def spin(call: CallbackQuery):
         f"🎉 Вы выиграли: {won['name']}\n⭐ {won['amount']}!",
         reply_markup=kb.claim_kb(),
     )
+
+
+@router.callback_query(F.data == "spin:skip")
+async def spin_skip(call: CallbackQuery):
+    event = skip_events.get(call.from_user.id)
+    if event:
+        event.set()
+    await call.answer("Пропускаем...")
 
 
 @router.callback_query(F.data == "play:claim")
@@ -440,4 +463,4 @@ async def wallet_cancel(call: CallbackQuery, state: FSMContext):
     await state.clear()
     await call.message.edit_text("❌ Перевод отменён.", reply_markup=kb.main_menu_kb())
     await call.answer()
-    
+                
