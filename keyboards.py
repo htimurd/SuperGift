@@ -9,6 +9,8 @@ def main_menu_kb():
     kb.button(text="🎮 Играть", callback_data="menu:play")
     kb.button(text="💸 Вывод", callback_data="menu:withdraw")
     kb.button(text="💼 Портфель", callback_data="menu:portfolio")
+    kb.button(text="🛒 Магазин", callback_data="menu:shop")
+    kb.button(text="👛 Кошелёк", callback_data="menu:wallet")
     kb.adjust(1)
     return kb.as_markup()
 
@@ -77,6 +79,54 @@ def admin_prize_list_kb(action_prefix):
             callback_data=f"admin:{action_prefix}:{p['id']}",
         )
     kb.button(text="⬅️ Назад", callback_data="admin:menu")
+    kb.adjust(1)
+    return kb.as_markup()
+
+
+# ---------- Магазин ----------
+
+def shop_prize_list_kb(user_id):
+    kb = InlineKeyboardBuilder()
+    for w in storage.get_wins(user_id, only_active=True):
+        kb.button(
+            text=f"{w.get('name', 'Приз')} — ⭐ {w['amount']}",
+            callback_data=f"shop:select:{w['id']}",
+        )
+    kb.adjust(1)
+    kb.row(InlineKeyboardButton(text="⬅️ Назад", callback_data="menu:back"))
+    return kb.as_markup()
+
+
+def shop_upgrade_options_kb(win_id):
+    kb = InlineKeyboardBuilder()
+    kb.button(text="✨ x1.5 — 250⭐", callback_data=f"shop:buy:{win_id}:15")
+    kb.button(text="🌟 x2.0 — 500⭐", callback_data=f"shop:buy:{win_id}:20")
+    kb.adjust(1)
+    kb.row(InlineKeyboardButton(text="⬅️ Назад", callback_data="menu:shop"))
+    return kb.as_markup()
+
+
+# ---------- Кошелёк ----------
+
+def wallet_menu_kb():
+    kb = InlineKeyboardBuilder()
+    kb.button(text="📤 Перевести звёзды", callback_data="wallet:send")
+    kb.adjust(1)
+    kb.row(InlineKeyboardButton(text="⬅️ Назад", callback_data="menu:back"))
+    return kb.as_markup()
+
+
+def wallet_confirm_kb():
+    kb = InlineKeyboardBuilder()
+    kb.button(text="✅ Подтвердить", callback_data="wallet:confirm")
+    kb.button(text="❌ Отмена", callback_data="wallet:cancel")
+    kb.adjust(2)
+    return kb.as_markup()
+
+
+def wallet_cancel_kb():
+    kb = InlineKeyboardBuilder()
+    kb.button(text="❌ Отмена", callback_data="wallet:cancel")
     kb.adjust(1)
     return kb.as_markup()
     
