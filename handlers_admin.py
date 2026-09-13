@@ -16,11 +16,13 @@ def is_admin(user_id: int) -> bool:
 
 
 class AddPrize(StatesGroup):
+    name = State()
     amount = State()
     chance = State()
 
 
 class EditPrize(StatesGroup):
+    name = State()
     amount = State()
     chance = State()
 
@@ -51,7 +53,7 @@ async def admin_list(call: CallbackQuery):
     else:
         lines = ["📋 Призы:\n"]
         for p in prizes:
-            lines.append(f"#{p['id']} — ⭐ {p['amount']}, шанс {p['chance']}")
+            lines.append(f"#{p['id']} — {p['name']} — ⭐ {p['amount']}, шанс {p['chance']}")
         text = "\n".join(lines)
     await call.message.edit_text(text, reply_markup=kb.admin_menu_kb())
     await call.answer()
@@ -63,9 +65,21 @@ async def admin_list(call: CallbackQuery):
 async def admin_add_start(call: CallbackQuery, state: FSMContext):
     if not is_admin(call.from_user.id):
         return await call.answer()
-    await state.set_state(AddPrize.amount)
-    await call.message.edit_text("Введите количество ⭐ для нового приза:")
+    await state.set_state(AddPrize.name)
+    await call.message.edit_text("Введите название приза (например: «Плюшевый мишка»):")
     await call.answer()
+
+
+@router.message(StateFilter(AddPrize.name))
+async def admin_add_name(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        return
+    name = message.text.strip()
+    if not name:
+        return await message.answer("Название не может быть пустым.")
+    await state.update_data(name=name)
+    await state.set_state(AddPrize.amount)
+    await message.answer("Введите количество ⭐ для этого приза:")
 
 
 @router.message(StateFilter(AddPrize.amount))
@@ -86,7 +100,7 @@ async def admin_add_chance(message: Message, state: FSMContext):
     if not message.text.isdigit():
         return await message.answer("Введите целое число.")
     data = await state.get_data()
-    storage.add_prize(data["amount"], int(message.text))
+    storage.add_prize(data["name"], data["amount"], int(message.text))
     await state.clear()
     await message.answer("✅ Приз добавлен.", reply_markup=kb.admin_menu_kb())
 
@@ -111,7 +125,7 @@ async def admin_remove_do(call: CallbackQuery):
     await call.message.edit_text("Выберите приз для удаления:", reply_markup=kb.admin_prize_list_kb("do_remove"))
 
 
-# ---------- Изменение (сумма + шанс) ----------
+# ---------- Изменение (название + сумма + шанс) ----------
 
 @router.callback_query(F.data == "admin:edit")
 async def admin_edit_start(call: CallbackQuery):
@@ -127,9 +141,19 @@ async def admin_edit_choose(call: CallbackQuery, state: FSMContext):
         return await call.answer()
     prize_id = int(call.data.split(":")[2])
     await state.update_data(prize_id=prize_id)
-    await state.set_state(EditPrize.amount)
-    await call.message.edit_text("Введите новое количество ⭐ (0 — не менять):")
+    await state.set_state(EditPrize.name)
+    await call.message.edit_text("Введите новое название приза (или «-», чтобы не менять):")
     await call.answer()
+
+
+@router.message(StateFilter(EditPrize.name))
+async def admin_edit_name(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        return
+    text = message.text.strip()
+    await state.update_data(name=None if text == "-" else text)
+    await state.set_state(EditPrize.amount)
+    await message.answer("Введите новое количество ⭐ (0 — не менять):")
 
 
 @router.message(StateFilter(EditPrize.amount))
@@ -152,7 +176,7 @@ async def admin_edit_chance(message: Message, state: FSMContext):
     data = await state.get_data()
     amount = data["amount"] or None
     chance = int(message.text) or None
-    storage.edit_prize(data["prize_id"], amount=amount, chance=chance)
+    storage.edit_prize(data["prize_id"], name=data.get("name"), amount=amount, chance=chance)
     await state.clear()
     await message.answer("✅ Приз обновлён.", reply_markup=kb.admin_menu_kb())
-  
+    
