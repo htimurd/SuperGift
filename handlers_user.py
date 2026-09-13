@@ -1,5 +1,6 @@
 import asyncio
 import random
+from datetime import datetime, timezone
 
 from aiogram import Router, F
 from aiogram.exceptions import TelegramBadRequest
@@ -23,6 +24,22 @@ skip_events: dict[int, asyncio.Event] = {}
 SPIN_SYMBOLS = ["🍒", "🍋", "🍇", "⭐", "🎁", "💎", "7️⃣"]
 
 UPGRADE_FACTORS = {15: (1.5, 250), 20: (2.0, 500)}
+
+
+def _fmt_duration(seconds: int) -> str:
+    seconds = max(seconds, 0)
+    h, rem = divmod(seconds, 3600)
+    m, _ = divmod(rem, 60)
+    parts = []
+    if h:
+        parts.append(f"{h}ч")
+    parts.append(f"{m}м")
+    return " ".join(parts)
+
+
+def _fmt_dt(iso_str: str) -> str:
+    dt = datetime.fromisoformat(iso_str)
+    return dt.strftime("%d.%m.%Y %H:%M UTC")
 
 
 class WalletSend(StatesGroup):
@@ -115,6 +132,14 @@ async def animate_slot(message, final_symbols, skip_event: asyncio.Event):
 
 @router.callback_query(F.data == "play:spin")
 async def spin(call: CallbackQuery):
+    allowed, remaining, reset_in = storage.check_spin_limit(call.from_user.id)
+    if not allowed:
+        await call.answer(
+            f"⏳ Лимит круток исчерпан (5 / 3 часа).\nСледующая через {_fmt_duration(reset_in)}.",
+            show_alert=True,
+        )
+        return
+
     prizes = storage.get_prizes()
     weights = [max(p["chance"], 0) for p in prizes]
     if not prizes or sum(weights) <= 0:
@@ -122,6 +147,7 @@ async def spin(call: CallbackQuery):
         return
 
     await call.answer()
+    storage.record_spin(call.from_user.id)
 
     won = random.choices(prizes, weights=weights, k=1)[0]
     is_empty = bool(won.get("is_empty"))
@@ -287,15 +313,30 @@ async def withdraw_cancel(call: CallbackQuery):
 
 @router.callback_query(F.data == "menu:shop")
 async def open_shop(call: CallbackQuery):
-    wins = storage.get_wins(call.from_user.id, only_active=True)
-    if not wins:
-        await call.answer("В портфеле нет призов для апгрейда.", show_alert=True)
-        return
     await call.message.edit_text(
-        "🛒 Магазин\n\nВыберите приз, который хотите улучшить:",
+        "🛒 Магазин\n\n"
+        "💎 SG Plus снимает лимит круток на 7 дней.\n"
+        "Ниже — ваши призы, которые можно улучшить множителем:",
         reply_markup=kb.shop_prize_list_kb(call.from_user.id),
     )
     await call.answer()
+
+
+@router.callback_query(F.data == "shop:sgplus")
+async def shop_buy_sgplus(call: CallbackQuery):
+    ok = storage.buy_sg_plus(call.from_user.id)
+    if not ok:
+        await call.answer(
+            f"Недостаточно ⭐ (нужно {storage.SG_PLUS_COST}).",
+            show_alert=True,
+        )
+        return
+    until = storage.get_sg_plus_until(call.from_user.id)
+    await call.answer("💎 SG Plus активирован!", show_alert=True)
+    await call.message.edit_text(
+        f"✅ SG Plus активирован!\nЛимит круток снят до {_fmt_dt(until)}.",
+        reply_markup=kb.shop_prize_list_kb(call.from_user.id),
+    )
 
 
 @router.callback_query(F.data.startswith("shop:select:"))
@@ -346,15 +387,31 @@ async def shop_buy(call: CallbackQuery):
     )
 
 
-# ---------- Кошелёк (перевод по username) ----------
+# ---------- Профиль (включает кошелёк) ----------
 
-@router.callback_query(F.data == "menu:wallet")
-async def open_wallet(call: CallbackQuery):
-    balance = storage.get_balance(call.from_user.id)
-    await call.message.edit_text(
-        f"👛 Кошелёк\n\nВаш баланс: ⭐ {balance}",
-        reply_markup=kb.wallet_menu_kb(),
-    )
+@router.callback_query(F.data == "menu:profile")
+async def open_profile(call: CallbackQuery):
+    user_id = call.from_user.id
+    balance = storage.get_balance(user_id)
+    sg_plus = storage.has_sg_plus(user_id)
+
+    username = call.from_user.username
+    name_line = f"@{username}" if username else call.from_user.full_name
+    diamond = " 💎" if sg_plus else ""
+
+    lines = [f"👤 {name_line}{diamond}", "", f"👛 Баланс: ⭐ {balance}"]
+
+    if sg_plus:
+        until = storage.get_sg_plus_until(user_id)
+        lines.append(f"💎 SG Plus активен до {_fmt_dt(until)}")
+        lines.append("🎰 Крутки: без лимита")
+    else:
+        _, remaining, reset_in = storage.check_spin_limit(user_id)
+        lines.append(f"🎰 Крутки: {remaining}/5 (обновляется каждые 3 часа)")
+        if reset_in:
+            lines.append(f"⏳ Следующая через {_fmt_duration(reset_in)}")
+
+    await call.message.edit_text("\n".join(lines), reply_markup=kb.profile_menu_kb())
     await call.answer()
 
 
@@ -463,4 +520,4 @@ async def wallet_cancel(call: CallbackQuery, state: FSMContext):
     await state.clear()
     await call.message.edit_text("❌ Перевод отменён.", reply_markup=kb.main_menu_kb())
     await call.answer()
-                
+    
