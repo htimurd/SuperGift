@@ -10,7 +10,7 @@ def main_menu_kb():
     kb.button(text="💸 Вывод", callback_data="menu:withdraw")
     kb.button(text="💼 Портфель", callback_data="menu:portfolio")
     kb.button(text="🛒 Магазин", callback_data="menu:shop")
-    kb.button(text="👛 Кошелёк", callback_data="menu:wallet")
+    kb.button(text="👤 Профиль", callback_data="menu:profile")
     kb.adjust(1)
     return kb.as_markup()
 
@@ -94,9 +94,10 @@ def admin_prize_list_kb(action_prefix):
 
 def shop_prize_list_kb(user_id):
     kb = InlineKeyboardBuilder()
+    kb.button(text="💎 SG Plus — 7000⭐ (снять лимит круток на 7 дней)", callback_data="shop:sgplus")
     for w in storage.get_wins(user_id, only_active=True):
         kb.button(
-            text=f"{w.get('name', 'Приз')} — ⭐ {w['amount']}",
+            text=f"⬆️ {w.get('name', 'Приз')} — ⭐ {w['amount']}",
             callback_data=f"shop:select:{w['id']}",
         )
     kb.adjust(1)
@@ -113,9 +114,9 @@ def shop_upgrade_options_kb(win_id):
     return kb.as_markup()
 
 
-# ---------- Кошелёк ----------
+# ---------- Профиль (включает кошелёк) ----------
 
-def wallet_menu_kb():
+def profile_menu_kb():
     kb = InlineKeyboardBuilder()
     kb.button(text="📤 Перевести звёзды", callback_data="wallet:send")
     kb.adjust(1)
