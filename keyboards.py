@@ -40,7 +40,8 @@ def withdraw_select_kb(user_id, selected):
     kb = InlineKeyboardBuilder()
     for w in wins:
         mark = "☑️" if w["id"] in selected else "⬜️"
-        kb.button(text=f"{mark} ⭐ {w['amount']}", callback_data=f"withdraw:toggle:{w['id']}")
+        name = w.get("name", "Приз")
+        kb.button(text=f"{mark} {name} — ⭐ {w['amount']}", callback_data=f"withdraw:toggle:{w['id']}")
     kb.adjust(1)
     kb.row(
         InlineKeyboardButton(text="📤 Вывести", callback_data="withdraw:go"),
@@ -71,10 +72,10 @@ def admin_prize_list_kb(action_prefix):
     kb = InlineKeyboardBuilder()
     for p in storage.get_prizes():
         kb.button(
-            text=f"⭐ {p['amount']} (шанс {p['chance']})",
+            text=f"{p['name']} — ⭐{p['amount']} (шанс {p['chance']})",
             callback_data=f"admin:{action_prefix}:{p['id']}",
         )
     kb.button(text="⬅️ Назад", callback_data="admin:menu")
     kb.adjust(1)
     return kb.as_markup()
-  
+    
