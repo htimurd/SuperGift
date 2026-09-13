@@ -190,12 +190,7 @@ async def toggle_withdraw(call: CallbackQuery):
     await call.answer()
 
 
-@router.callback_query(F.data == "withdraw:go")
-async def withdraw_go(call: CallbackQuery):
-    sel = withdraw_selection.get(call.from_user.id, set())
-    if not sel:
-        await call.answer("Выберите хотя бы один приз.", show_alert=True)
-        return
+async def _show_withdraw_confirm(call: CallbackQuery, sel: set[int]):
     chosen = [w for w in storage.get_wins(call.from_user.id) if w["id"] in sel]
     total = sum(w["amount"] for w in chosen)
     names = "\n".join(f"— {w.get('name', 'Приз')} (⭐ {w['amount']})" for w in chosen)
@@ -203,6 +198,27 @@ async def withdraw_go(call: CallbackQuery):
         f"Вы собираетесь вывести:\n{names}\n\nИтого: ⭐ {total}\nПодтвердить?",
         reply_markup=kb.confirm_kb(),
     )
+
+
+@router.callback_query(F.data == "withdraw:go")
+async def withdraw_go(call: CallbackQuery):
+    sel = withdraw_selection.get(call.from_user.id, set())
+    if not sel:
+        await call.answer("Выберите хотя бы один приз.", show_alert=True)
+        return
+    await _show_withdraw_confirm(call, sel)
+    await call.answer()
+
+
+@router.callback_query(F.data == "withdraw:all")
+async def withdraw_all(call: CallbackQuery):
+    wins = storage.get_wins(call.from_user.id, only_active=True)
+    if not wins:
+        await call.answer("Нет доступных выигрышей для вывода.", show_alert=True)
+        return
+    sel = {w["id"] for w in wins}
+    withdraw_selection[call.from_user.id] = sel
+    await _show_withdraw_confirm(call, sel)
     await call.answer()
 
 
@@ -215,13 +231,12 @@ async def withdraw_confirm(call: CallbackQuery):
         try:
             await call.bot.send_message(
                 ADMIN_ID,
-                f"📤 Запрос на вывод\n"
-                f"Пользователь: {call.from_user.full_name} (id {call.from_user.id})\n"
-                f"Сумма: ⭐ {total}",
+                f"✅ Пользователь {call.from_user.full_name} (id {call.from_user.id}) "
+                f"вывел ⭐ {total}",
             )
         except Exception:
             pass
-        await call.message.edit_text(f"✅ Заявка на вывод ⭐ {total} отправлена!", reply_markup=kb.main_menu_kb())
+        await call.message.edit_text(f"✅ Вы успешно вывели ⭐ {total}!", reply_markup=kb.main_menu_kb())
     else:
         await call.message.edit_text("Выберите действие:", reply_markup=kb.main_menu_kb())
     await call.answer()
@@ -232,3 +247,4 @@ async def withdraw_cancel(call: CallbackQuery):
     withdraw_selection.pop(call.from_user.id, None)
     await call.message.edit_text("❌ Вывод отменён.", reply_markup=kb.main_menu_kb())
     await call.answer()
+    
