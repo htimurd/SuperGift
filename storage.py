@@ -1,11 +1,16 @@
 import json
 import os
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from config import DATA_FILE
 
 _lock = threading.Lock()
+
+SPIN_LIMIT = 5
+SPIN_WINDOW_HOURS = 3
+SG_PLUS_COST = 7000
+SG_PLUS_DAYS = 7
 
 
 def _default_data():
@@ -106,7 +111,16 @@ def edit_prize(prize_id, name=None, amount=None, chance=None):
 def _ensure_user(data, user_id):
     uid = str(user_id)
     if uid not in data["users"]:
-        data["users"][uid] = {"wins": [], "next_win_id": 1, "username": None}
+        data["users"][uid] = {
+            "wins": [],
+            "next_win_id": 1,
+            "username": None,
+            "spin_times": [],
+            "sg_plus_until": None,
+        }
+    else:
+        data["users"][uid].setdefault("spin_times", [])
+        data["users"][uid].setdefault("sg_plus_until", None)
     return data["users"][uid]
 
 
@@ -252,4 +266,93 @@ def transfer_stars(from_user_id, to_user_id, amount, note_name):
     recipient["next_win_id"] += 1
     save_data(data)
     return True
+
+
+# ---------- SG Plus (снятие лимита круток) ----------
+
+def get_sg_plus_until(user_id):
+    data = load_data()
+    user = data["users"].get(str(user_id))
+    if not user:
+        return None
+    return user.get("sg_plus_until")
+
+
+def has_sg_plus(user_id):
+    until = get_sg_plus_until(user_id)
+    if not until:
+        return False
+    try:
+        return datetime.fromisoformat(until) > datetime.now(timezone.utc)
+    except ValueError:
+        return False
+
+
+def buy_sg_plus(user_id, cost=SG_PLUS_COST, days=SG_PLUS_DAYS):
+    """Списывает cost звёзд и продлевает/активирует SG Plus. Возвращает True/False."""
+    data = load_data()
+    if not _spend(data, user_id, cost):
+        return False
+    user = _ensure_user(data, user_id)
+    now = datetime.now(timezone.utc)
+    base = now
+    current = user.get("sg_plus_until")
+    if current:
+        try:
+            cur_dt = datetime.fromisoformat(current)
+            if cur_dt > now:
+                base = cur_dt
+        except ValueError:
+            pass
+    user["sg_plus_until"] = (base + timedelta(days=days)).isoformat()
+    save_data(data)
+    return True
+
+
+# ---------- Лимит круток (5 раз в 3 часа, если нет SG Plus) ----------
+
+def check_spin_limit(user_id):
+    """
+    Возвращает (allowed, remaining, reset_in_seconds).
+    Если у пользователя активен SG Plus — лимита нет: (True, None, None).
+    """
+    if has_sg_plus(user_id):
+        return True, None, None
+
+    data = load_data()
+    user = _ensure_user(data, user_id)
+    now = datetime.now(timezone.utc)
+    window_start = now - timedelta(hours=SPIN_WINDOW_HOURS)
+
+    times = []
+    for t in user.get("spin_times", []):
+        try:
+            dt = datetime.fromisoformat(t)
+        except ValueError:
+            continue
+        if dt > window_start:
+            times.append(dt)
+
+    if len(times) != len(user.get("spin_times", [])):
+        user["spin_times"] = [t.isoformat() for t in times]
+        save_data(data)
+
+    remaining = SPIN_LIMIT - len(times)
+    if remaining <= 0:
+        oldest = min(times)
+        reset_at = oldest + timedelta(hours=SPIN_WINDOW_HOURS)
+        reset_in = max(int((reset_at - now).total_seconds()), 0)
+        return False, 0, reset_in
+
+    return True, remaining, None
+
+
+def record_spin(user_id):
+    """Отмечает факт крутки (не действует, если у пользователя активен SG Plus)."""
+    if has_sg_plus(user_id):
+        return
+    data = load_data()
+    user = _ensure_user(data, user_id)
+    user["spin_times"].append(datetime.now(timezone.utc).isoformat())
+    save_data(data)
     
