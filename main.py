@@ -4,6 +4,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.types import BotCommand, BotCommandScopeChat, BotCommandScopeDefault
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from aiohttp import web
 
@@ -15,7 +16,30 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+async def setup_commands(bot: Bot):
+    """Список команд, который Telegram показывает при вводе '/'."""
+    default_commands = [
+        BotCommand(command="start", description="Открыть меню"),
+    ]
+    admin_commands = default_commands + [
+        BotCommand(command="admin", description="Админ-панель"),
+    ]
+
+    await bot.set_my_commands(default_commands, scope=BotCommandScopeDefault())
+    try:
+        await bot.set_my_commands(
+            admin_commands,
+            scope=BotCommandScopeChat(chat_id=config.ADMIN_ID),
+        )
+    except Exception:
+        # Если админ ещё ни разу не писал боту, Telegram может отказать
+        # в установке персональных команд для этого chat_id — это не критично,
+        # команда /admin всё равно работает, просто не будет в подсказке до /start.
+        logger.warning("Не удалось установить персональные команды для админа")
+
+
 async def on_startup(bot: Bot):
+    await setup_commands(bot)
     if config.WEBHOOK_URL:
         await bot.set_webhook(
             config.WEBHOOK_URL,
@@ -58,4 +82,4 @@ def create_app() -> web.Application:
 
 if __name__ == "__main__":
     web.run_app(create_app(), host=config.WEB_SERVER_HOST, port=config.PORT)
-  
+    
