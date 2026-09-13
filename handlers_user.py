@@ -54,6 +54,48 @@ async def _safe_edit(message, text, reply_markup=None):
         pass
 
 
+def _render_row(row):
+    return "   ".join(row)
+
+
+async def animate_slot(message, final_symbols):
+    """
+    Анимация как в игровых автоматах: 3 колеса крутятся одновременно,
+    затем по очереди останавливаются одно за другим (сначала левое,
+    потом среднее, потом правое), пока все три не покажут финальный результат.
+    """
+    # На каком кадре останавливается очередное колесо (индекс колеса 0,1,2)
+    lock_schedule = {5: 0, 8: 1, 11: 2}
+    total_frames = 12
+    locked = [False, False, False]
+
+    for frame in range(total_frames):
+        if frame in lock_schedule:
+            locked[lock_schedule[frame]] = True
+
+        row = [
+            final_symbols[i] if locked[i] else random.choice(SPIN_SYMBOLS)
+            for i in range(3)
+        ]
+
+        stopped_count = locked.count(True)
+        if stopped_count == 0:
+            header = "🎰 Крутим барабан..."
+            delay = 0.18
+        elif stopped_count == 1:
+            header = "🎰 Первое колесо остановилось!"
+            delay = 0.28
+        elif stopped_count == 2:
+            header = "🎰 Второе колесо остановилось!"
+            delay = 0.4
+        else:
+            header = "🎰 Барабан остановился!"
+            delay = 0.6
+
+        await _safe_edit(message, f"{header}\n\n{_render_row(row)}")
+        await asyncio.sleep(delay)
+
+
 @router.callback_query(F.data == "play:spin")
 async def spin(call: CallbackQuery):
     prizes = storage.get_prizes()
@@ -64,25 +106,29 @@ async def spin(call: CallbackQuery):
 
     await call.answer()
 
-    # Заранее определяем реальный результат — анимация лишь оттягивает показ
+    # Результат определяем заранее — анимация лишь оттягивает показ.
     won = random.choices(prizes, weights=weights, k=1)[0]
+    is_empty = bool(won.get("is_empty"))
+
+    if is_empty:
+        # три РАЗНЫХ символа — визуально "не сошлось", проигрыш
+        final_symbols = random.sample(SPIN_SYMBOLS, 3)
+    else:
+        # три ОДИНАКОВЫХ символа — визуально "джекпот", выигрыш
+        symbol = random.choice(SPIN_SYMBOLS)
+        final_symbols = [symbol, symbol, symbol]
+
+    await animate_slot(call.message, final_symbols)
+
+    if is_empty:
+        await _safe_edit(
+            call.message,
+            "😔 Увы, в этот раз ничего не выпало.\nПопробуйте ещё раз!",
+            reply_markup=kb.play_menu_kb(),
+        )
+        return
+
     pending_wins[call.from_user.id] = {"name": won["name"], "amount": won["amount"]}
-
-    # --- Анимация "барабана" для интриги ---
-    frames = 8
-    for i in range(frames):
-        row = " ".join(random.choice(SPIN_SYMBOLS) for _ in range(3))
-        dots = "." * ((i % 3) + 1)
-        await _safe_edit(call.message, f"🎰 Крутим барабан{dots}\n\n{row}")
-        # к концу анимации замедляем — как будто барабан останавливается
-        delay = 0.25 if i < frames - 3 else 0.5
-        await asyncio.sleep(delay)
-
-    # финальный "стоп-кадр" перед раскрытием приза
-    final_row = " ".join([SPIN_SYMBOLS[-1]] * 3)
-    await _safe_edit(call.message, f"🎰 Барабан остановился...\n\n{final_row}")
-    await asyncio.sleep(0.8)
-
     await _safe_edit(
         call.message,
         f"🎉 Вы выиграли: {won['name']}\n⭐ {won['amount']}!",
@@ -186,4 +232,3 @@ async def withdraw_cancel(call: CallbackQuery):
     withdraw_selection.pop(call.from_user.id, None)
     await call.message.edit_text("❌ Вывод отменён.", reply_markup=kb.main_menu_kb())
     await call.answer()
-    
