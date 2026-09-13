@@ -11,11 +11,11 @@ _lock = threading.Lock()
 def _default_data():
     return {
         "prizes": [
-            {"id": 1, "amount": 5, "chance": 40},
-            {"id": 2, "amount": 25, "chance": 30},
-            {"id": 3, "amount": 100, "chance": 20},
-            {"id": 4, "amount": 500, "chance": 8},
-            {"id": 5, "amount": 3000, "chance": 2},
+            {"id": 1, "name": "Мини-приз", "amount": 5, "chance": 40},
+            {"id": 2, "name": "Малый приз", "amount": 25, "chance": 30},
+            {"id": 3, "name": "Средний приз", "amount": 100, "chance": 20},
+            {"id": 4, "name": "Большой приз", "amount": 500, "chance": 8},
+            {"id": 5, "name": "Джекпот", "amount": 3000, "chance": 2},
         ],
         "next_prize_id": 6,
         "users": {},
@@ -29,7 +29,16 @@ def load_data():
         return data
     with _lock:
         with open(DATA_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
+            data = json.load(f)
+    # миграция старых записей без поля "name"
+    changed = False
+    for p in data.get("prizes", []):
+        if "name" not in p:
+            p["name"] = f"Приз ⭐{p['amount']}"
+            changed = True
+    if changed:
+        save_data(data)
+    return data
 
 
 def save_data(data):
@@ -51,10 +60,10 @@ def get_prize(prize_id):
     return None
 
 
-def add_prize(amount, chance):
+def add_prize(name, amount, chance):
     data = load_data()
     pid = data["next_prize_id"]
-    data["prizes"].append({"id": pid, "amount": amount, "chance": chance})
+    data["prizes"].append({"id": pid, "name": name, "amount": amount, "chance": chance})
     data["next_prize_id"] += 1
     save_data(data)
     return pid
@@ -66,10 +75,12 @@ def remove_prize(prize_id):
     save_data(data)
 
 
-def edit_prize(prize_id, amount=None, chance=None):
+def edit_prize(prize_id, name=None, amount=None, chance=None):
     data = load_data()
     for p in data["prizes"]:
         if p["id"] == prize_id:
+            if name is not None:
+                p["name"] = name
             if amount is not None:
                 p["amount"] = amount
             if chance is not None:
@@ -86,13 +97,14 @@ def _ensure_user(data, user_id):
     return data["users"][uid]
 
 
-def add_win(user_id, amount):
+def add_win(user_id, name, amount):
     data = load_data()
     user = _ensure_user(data, user_id)
     win_id = user["next_win_id"]
     user["wins"].append(
         {
             "id": win_id,
+            "name": name,
             "amount": amount,
             "withdrawn": False,
             "won_at": datetime.now(timezone.utc).isoformat(),
@@ -123,3 +135,4 @@ def mark_withdrawn(user_id, win_ids):
         if w["id"] in win_ids:
             w["withdrawn"] = True
     save_data(data)
+    
